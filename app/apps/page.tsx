@@ -60,15 +60,15 @@ const applications: Application[] = [
     icon: Warehouse,
     active: false,
   },
-//   {
-//     name: "Quality Control",
-//     description:
-//       "Pencatatan dan monitoring aktivitas quality control produksi.",
-//     category: "Quality",
-//     href: "#",
-//     icon: ClipboardCheck,
-//     active: false,
-//   },
+  {
+    name: "Labour Direct Management",
+    description:
+      "Pelaporan dan pengelolaan data tenaga kerja secara langsung.",
+    category: "Quality",
+    href: "#",
+    icon: ClipboardCheck,
+    active: false,
+  },
 //   {
 //     name: "Purchasing",
 //     description:
