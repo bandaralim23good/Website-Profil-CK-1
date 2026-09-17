@@ -52,11 +52,11 @@ const applications: Application[] = [
     active: true,
   },
   {
-    name: "Inventory Management",
+    name: "Laporan QHS",
     description:
       "Monitoring stok bahan baku, packaging, dan kebutuhan operasional.",
     category: "Warehouse",
-    href: "#",
+    href: "https://laporan-direktorat.vercel.app/",
     icon: Warehouse,
     active: false,
   },
