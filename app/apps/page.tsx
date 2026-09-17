@@ -58,7 +58,7 @@ const applications: Application[] = [
     category: "Warehouse",
     href: "https://laporan-direktorat.vercel.app/",
     icon: Warehouse,
-    active: false,
+    active: true,
   },
   {
     name: "Labour Direct Management",
