@@ -33,15 +33,15 @@ const applications: Application[] = [
     icon: Calculator,
     active: true,
   },
-//   {
-//     name: "Production Management",
-//     description:
-//       "Pengelolaan dan monitoring aktivitas produksi Central Kitchen 1.",
-//     category: "Production",
-//     href: "/production",
-//     icon: Factory,
-//     active: true,
-//   },
+  //   {
+  //     name: "Production Management",
+  //     description:
+  //       "Pengelolaan dan monitoring aktivitas produksi Central Kitchen 1.",
+  //     category: "Production",
+  //     href: "/production",
+  //     icon: Factory,
+  //     active: true,
+  //   },
   {
     name: "Production Dashboard",
     description:
@@ -69,38 +69,47 @@ const applications: Application[] = [
     icon: ClipboardCheck,
     active: false,
   },
-//   {
-//     name: "Purchasing",
-//     description:
-//       "Pengelolaan kebutuhan pembelian dan proses procurement.",
-//     category: "Procurement",
-//     href: "#",
-//     icon: ShoppingCart,
-//     active: false,
-//   },
-//   {
-//     name: "Material Management",
-//     description:
-//       "Pengelolaan data material dan kebutuhan produksi.",
-//     category: "Warehouse",
-//     href: "#",
-//     icon: Package,
-//     active: false,
-//   },
-//   {
-//     name: "HR & Workforce",
-//     description:
-//       "Informasi dan pengelolaan data tenaga kerja Central Kitchen 1.",
-//     category: "Human Resources",
-//     href: "#",
-//     icon: Users,
-//     active: false,
-//   },
+  {
+    name: "Manufacturing Scoring",
+    description:
+      "Monitoring dan pengelolaan nilai manufacturing berdasarkan factory dan SKU.",
+    category: "Manufacturing",
+    href: "/manufacturing-scoring",
+    icon: Factory,
+    active: true,
+  },
+  //   {
+  //     name: "Purchasing",
+  //     description:
+  //       "Pengelolaan kebutuhan pembelian dan proses procurement.",
+  //     category: "Procurement",
+  //     href: "#",
+  //     icon: ShoppingCart,
+  //     active: false,
+  //   },
+  //   {
+  //     name: "Material Management",
+  //     description:
+  //       "Pengelolaan data material dan kebutuhan produksi.",
+  //     category: "Warehouse",
+  //     href: "#",
+  //     icon: Package,
+  //     active: false,
+  //   },
+  //   {
+  //     name: "HR & Workforce",
+  //     description:
+  //       "Informasi dan pengelolaan data tenaga kerja Central Kitchen 1.",
+  //     category: "Human Resources",
+  //     href: "#",
+  //     icon: Users,
+  //     active: false,
+  //   },
 ];
 
 export default function AppsPage() {
   const [search, setSearch] = useState("");
-
+  // const applications: Application[] = [
   const filteredApplications = applications.filter((app) => {
     const keyword = search.toLowerCase();
 
@@ -288,11 +297,10 @@ export default function AppsPage() {
                       </div>
 
                       <span
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
-                          app.active
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${app.active
                             ? "bg-emerald-50 text-emerald-700"
                             : "bg-slate-100 text-slate-400"
-                        }`}
+                          }`}
                       >
                         {app.active ? "Active" : "Coming Soon"}
                       </span>
