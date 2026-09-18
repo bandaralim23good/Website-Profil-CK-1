@@ -73,7 +73,7 @@ export default function Home() {
             </a>
 
             <Link
-              href="/apps"
+              href="/login"
               className="rounded-lg bg-slate-900 px-5 py-2.5 font-semibold text-white transition hover:bg-slate-700"
             >
               Aplikasi
@@ -457,7 +457,7 @@ export default function Home() {
               </div>
 
               <Link
-                href="/apps"
+                href="/login"
                 className="group inline-flex items-center justify-center gap-3 rounded-lg bg-slate-900 px-7 py-4 text-sm font-semibold text-white transition hover:bg-slate-700"
               >
                 Lihat Aplikasi
