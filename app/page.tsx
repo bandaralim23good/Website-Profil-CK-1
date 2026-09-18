@@ -116,7 +116,7 @@ export default function Home() {
               <div className="mt-9 flex flex-wrap gap-4">
 
                 <Link
-                  href="/apps"
+                  href="/login"
                   className="group inline-flex items-center gap-3 rounded-lg bg-slate-900 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-slate-700"
                 >
                   Akses Aplikasi
