@@ -1,9 +1,11 @@
 "use client";
-
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
+    ArrowLeft,
     BarChart3,
     Building2,
+    Check,
     ChevronDown,
     Edit,
     LogOut,
@@ -13,6 +15,16 @@ import {
     Trash2,
     X,
 } from "lucide-react";
+import {
+    CartesianGrid,
+    Legend,
+    Line,
+    LineChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from "recharts";
 import { signOut } from "next-auth/react";
 
 type User = {
@@ -76,10 +88,22 @@ export default function ManufacturingScoringContent({
     user,
 }: Props) {
     const isAdmin = user.role === "ADMIN";
-
     const [factories, setFactories] = useState<Factory[]>([]);
     const [scores, setScores] = useState<ManufacturingScore[]>([]);
-
+    const [deleteTarget, setDeleteTarget] = useState<{
+        type: "factory" | "sku" | "score";
+        id: number;
+        name: string;
+        description: string;
+    } | null>(null);
+    const router = useRouter();
+    const [deleting, setDeleting] = useState(false);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [showMasterData, setShowMasterData] = useState(true);
+    const [selectedFactoryId, setSelectedFactoryId] = useState<number | null>(
+        null
+    );
+    const [showChart, setShowChart] = useState(false);
     const [selectedFactory, setSelectedFactory] = useState<number | "all">(
         "all"
     );
@@ -179,6 +203,7 @@ export default function ManufacturingScoringContent({
         loadData();
     }, []);
 
+
     // ============================================================
     // FILTER
     // ============================================================
@@ -203,7 +228,91 @@ export default function ManufacturingScoringContent({
         selectedYear,
         selectedMonth,
     ]);
+    const allPeriods = useMemo(() => {
+        const periods = filteredScores.map((item) => ({
+            year: item.year,
+            month: item.month,
+        }));
 
+        const uniquePeriods = Array.from(
+            new Map(
+                periods.map((period) => [
+                    `${period.year}-${period.month}`,
+                    period,
+                ])
+            ).values()
+        );
+
+        return uniquePeriods.sort((a, b) => {
+            if (a.year !== b.year) {
+                return a.year - b.year;
+            }
+
+            return a.month - b.month;
+        });
+    }, [filteredScores]);
+    const products = useMemo(() => {
+        const skuMap = new Map<number, SKU>();
+
+        filteredScores.forEach((score) => {
+            score.skuScores.forEach((skuScore) => {
+                skuMap.set(skuScore.sku.id, skuScore.sku);
+            });
+        });
+
+        return Array.from(skuMap.values()).sort((a, b) =>
+            a.code.localeCompare(b.code)
+        );
+    }, [filteredScores]);
+    const periodsByYear = useMemo(() => {
+        return allPeriods.reduce<Record<number, typeof allPeriods>>(
+            (result, period) => {
+                if (!result[period.year]) {
+                    result[period.year] = [];
+                }
+
+                result[period.year].push(period);
+
+                return result;
+            },
+            {}
+        );
+    }, [allPeriods]);
+    // ============================================================
+    // CHART DATA
+    // ============================================================
+    const chartData = useMemo(() => {
+        return allPeriods.map((period) => {
+            const score = filteredScores.find(
+                (item) =>
+                    item.year === period.year &&
+                    item.month === period.month
+            );
+
+            const row: Record<string, string | number> = {
+                period: `${months[period.month - 1]} ${period.year}`,
+            };
+
+            products.forEach((product) => {
+                const skuScore = score?.skuScores.find(
+                    (item) => item.skuId === product.id
+                );
+
+                row[`sku_${product.id}`] = skuScore?.score ?? 0;
+            });
+
+            row.overall = score?.score ?? 0;
+
+            return row;
+        });
+    }, [allPeriods, filteredScores, products]);
+
+    const chartSkuLines = useMemo(() => {
+        return products.map((product) => ({
+            key: `sku_${product.id}`,
+            name: product.name,
+        }));
+    }, [products]);
     // ============================================================
     // FACTORY MODAL
     // ============================================================
@@ -261,7 +370,7 @@ export default function ManufacturingScoringContent({
                     data.message || `Gagal menyimpan factory. (${response.status})`
                 );
             }
-            setMessage(
+            setSuccessMessage(
                 editingFactory
                     ? "Factory berhasil diperbarui."
                     : "Factory berhasil ditambahkan."
@@ -279,37 +388,14 @@ export default function ManufacturingScoringContent({
         }
     }
 
-    async function deleteFactory(factory: Factory) {
-        const confirmed = window.confirm(
-            `Hapus factory "${factory.name}"?\n\nSemua SKU dan scoring yang terkait juga akan terhapus.`
-        );
-
-        if (!confirmed) return;
-
-        try {
-            const response = await fetch(
-                `/api/factories/${factory.id}`,
-                {
-                    method: "DELETE",
-                }
-            );
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message);
-            }
-
-            setMessage("Factory berhasil dihapus.");
-            await loadData();
-        } catch (err) {
-            console.error(err);
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : "Gagal menghapus factory."
-            );
-        }
+    function deleteFactory(factory: Factory) {
+        setDeleteTarget({
+            type: "factory",
+            id: factory.id,
+            name: factory.name,
+            description:
+                "Semua SKU dan scoring yang terkait dengan factory ini juga akan dihapus.",
+        });
     }
 
     // ============================================================
@@ -359,7 +445,7 @@ export default function ManufacturingScoringContent({
                 throw new Error(data.message || "Gagal menyimpan SKU.");
             }
 
-            setMessage(
+            setSuccessMessage(
                 editingSKU
                     ? "SKU berhasil diperbarui."
                     : "SKU berhasil ditambahkan."
@@ -377,34 +463,13 @@ export default function ManufacturingScoringContent({
         }
     }
 
-    async function deleteSKU(sku: SKU) {
-        const confirmed = window.confirm(
-            `Hapus SKU "${sku.name}"?`
-        );
-
-        if (!confirmed) return;
-
-        try {
-            const response = await fetch(`/api/skus/${sku.id}`, {
-                method: "DELETE",
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message);
-            }
-
-            setMessage("SKU berhasil dihapus.");
-            await loadData();
-        } catch (err) {
-            console.error(err);
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : "Gagal menghapus SKU."
-            );
-        }
+    function deleteSKU(sku: SKU) {
+        setDeleteTarget({
+            type: "sku",
+            id: sku.id,
+            name: sku.name,
+            description: "SKU ini akan dihapus beserta semua data terkait.",
+        });
     }
 
     // ============================================================
@@ -413,12 +478,72 @@ export default function ManufacturingScoringContent({
 
     function openCreateScore() {
         setEditingScore(null);
+
+        const currentMonth = new Date().getMonth() + 1;
+        const currentYear = new Date().getFullYear();
+
         setScoreFactoryId("");
-        setScoreMonth(new Date().getMonth() + 1);
-        setScoreYear(new Date().getFullYear());
+        setScoreMonth(currentMonth);
+        setScoreYear(currentYear);
         setOverallScore("");
         setSkuScores([]);
+
         setModal("score");
+    }
+    function loadExistingScore(
+        factoryId: number,
+        month: number,
+        year: number
+    ) {
+        const factory = factories.find(
+            (item) => item.id === factoryId
+        );
+
+        if (!factory) {
+            setOverallScore("");
+            setSkuScores([]);
+            return;
+        }
+
+        const existingScore = scores.find(
+            (item) =>
+                item.factoryId === factoryId &&
+                item.month === month &&
+                item.year === year
+        );
+
+        // Belum ada scoring untuk periode tersebut
+        if (!existingScore) {
+            setOverallScore("");
+
+            setSkuScores(
+                factory.skus.map((sku) => ({
+                    skuId: sku.id,
+                    score: "",
+                }))
+            );
+
+            return;
+        }
+
+        // Sudah ada scoring → tampilkan nilai lama
+        setOverallScore(String(existingScore.score));
+
+        setSkuScores(
+            factory.skus.map((sku) => {
+                const existingSKUScore =
+                    existingScore.skuScores.find(
+                        (item) => item.skuId === sku.id
+                    );
+
+                return {
+                    skuId: sku.id,
+                    score: existingSKUScore
+                        ? String(existingSKUScore.score)
+                        : "",
+                };
+            })
+        );
     }
 
     function openEditScore(score: ManufacturingScore) {
@@ -429,11 +554,29 @@ export default function ManufacturingScoringContent({
         setScoreYear(score.year);
         setOverallScore(String(score.score));
 
+        const factory = factories.find(
+            (item) => item.id === score.factoryId
+        );
+
+        if (!factory) {
+            setSkuScores([]);
+            setModal("score");
+            return;
+        }
+
         setSkuScores(
-            score.skuScores.map((item) => ({
-                skuId: item.skuId,
-                score: String(item.score),
-            }))
+            factory.skus.map((sku) => {
+                const existingSKUScore = score.skuScores.find(
+                    (item) => item.skuId === sku.id
+                );
+
+                return {
+                    skuId: sku.id,
+                    score: existingSKUScore
+                        ? String(existingSKUScore.score)
+                        : "",
+                };
+            })
         );
 
         setModal("score");
@@ -444,20 +587,16 @@ export default function ManufacturingScoringContent({
 
         setScoreFactoryId(factoryId);
 
-        const factory = factories.find(
-            (item) => item.id === factoryId
-        );
-
-        if (!factory) {
+        if (!factoryId) {
+            setOverallScore("");
             setSkuScores([]);
             return;
         }
 
-        setSkuScores(
-            factory.skus.map((sku) => ({
-                skuId: sku.id,
-                score: "",
-            }))
+        loadExistingScore(
+            factoryId,
+            scoreMonth,
+            scoreYear
         );
     }
 
@@ -496,10 +635,12 @@ export default function ManufacturingScoringContent({
                     month: scoreMonth,
                     year: scoreYear,
                     score: Number(overallScore),
-                    skuScores: skuScores.map((item) => ({
-                        skuId: item.skuId,
-                        score: Number(item.score),
-                    })),
+                    skuScores: skuScores
+                        .filter((item) => item.score.trim() !== "")
+                        .map((item) => ({
+                            skuId: item.skuId,
+                            score: Number(item.score),
+                        })),
                 }),
             });
 
@@ -511,7 +652,7 @@ export default function ManufacturingScoringContent({
                 );
             }
 
-            setMessage(
+            setSuccessMessage(
                 editingScore
                     ? "Scoring berhasil diperbarui."
                     : "Scoring berhasil ditambahkan."
@@ -529,21 +670,37 @@ export default function ManufacturingScoringContent({
         }
     }
 
-    async function deleteScore(score: ManufacturingScore) {
-        const confirmed = window.confirm(
-            `Hapus scoring ${score.factory.name} - ${months[score.month - 1]
-            } ${score.year}?`
-        );
-
-        if (!confirmed) return;
+    function deleteScore(score: ManufacturingScore) {
+        setDeleteTarget({
+            type: "score",
+            id: score.id,
+            name: `${score.factory.name} - ${months[score.month - 1]
+                } ${score.year}`,
+            description:
+                "Data scoring factory beserta scoring SKU yang terkait akan dihapus.",
+        });
+    }
+    async function confirmDelete() {
+        if (!deleteTarget) return;
 
         try {
-            const response = await fetch(
-                `/api/manufacturing-scoring/${score.id}`,
-                {
-                    method: "DELETE",
-                }
-            );
+            setDeleting(true);
+            setMessage("");
+            setError("");
+
+            let endpoint = "";
+
+            if (deleteTarget.type === "factory") {
+                endpoint = `/api/factories/${deleteTarget.id}`;
+            } else if (deleteTarget.type === "sku") {
+                endpoint = `/api/skus/${deleteTarget.id}`;
+            } else {
+                endpoint = `/api/manufacturing-scoring/${deleteTarget.id}`;
+            }
+
+            const response = await fetch(endpoint, {
+                method: "DELETE",
+            });
 
             const data = await response.json();
 
@@ -551,24 +708,81 @@ export default function ManufacturingScoringContent({
                 throw new Error(data.message);
             }
 
-            setMessage("Scoring berhasil dihapus.");
+            if (deleteTarget.type === "factory") {
+                setSuccessMessage("Factory berhasil dihapus.");
+            } else if (deleteTarget.type === "sku") {
+                setSuccessMessage("SKU berhasil dihapus.");
+            } else {
+                setSuccessMessage("Scoring berhasil dihapus.");
+            }
+
+            setDeleteTarget(null);
+
             await loadData();
         } catch (err) {
             console.error(err);
+
             setError(
                 err instanceof Error
                     ? err.message
-                    : "Gagal menghapus scoring."
+                    : "Gagal menghapus data."
             );
+        } finally {
+            setDeleting(false);
         }
     }
 
+    // ============================================================
+    // DATA CLASIFICATION BY COLOR
+    // ============================================================
+    function getScoreColor(score: number) {
+        if (score >= 90) {
+            return "bg-blue-400 text-blue-1000";
+        }
+
+        if (score >= 72) {
+            return "bg-green-400 text-green-1000";
+        }
+
+        if (score >= 60) {
+            return "bg-yellow-300 text-yellow-1000";
+        }
+
+        if (score >= 40) {
+            return "bg-orange-400 text-orange-1000";
+        }
+        if (score == 0) {
+            return "bg-white-400 text-red-1000";
+        }
+
+        return "bg-red-400 text-red-1000";
+    }
+
+    const renderScoreLabel = (props: any) => {
+        const { x, y, value } = props;
+
+        return (
+            <text
+                x={x}
+                y={y - 12}
+                textAnchor="middle"
+                fill="#0f172a"
+                fontSize={11}
+                fontWeight={600}
+            >
+                {typeof value === "number"
+                    ? `${value.toFixed(2)}%`
+                    : value}
+            </text>
+        );
+    };
     // ============================================================
     // RENDER
     // ============================================================
 
     return (
         <main className="min-h-screen bg-slate-50 text-slate-950">
+
             {/* HEADER */}
             <header className="border-b border-slate-200 bg-white">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-8">
@@ -578,6 +792,7 @@ export default function ManufacturingScoringContent({
                         </div>
 
                         <div>
+
                             <p className="text-sm font-bold">
                                 Manufacturing Scoring
                             </p>
@@ -616,6 +831,16 @@ export default function ManufacturingScoringContent({
                 {/* TITLE */}
                 <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
                     <div>
+                        <div className="mb-5">
+                            <button
+                                type="button"
+                                onClick={() => router.push("/apps")}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900"
+                            >
+                                <ArrowLeft className="h-4 w-4" />
+                                Kembali ke Aplikasi
+                            </button>
+                        </div>
                         <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-700">
                             Manufacturing
                         </p>
@@ -750,154 +975,228 @@ export default function ManufacturingScoringContent({
 
                 {/* FACTORY + SKU MANAGEMENT */}
                 {isAdmin && (
-                    <section className="mt-8 grid gap-5 md:grid-cols-2">
-                        {/* FACTORY */}
-                        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-                                        <Building2 className="h-5 w-5" />
-                                    </div>
+                    <section className="mt-8">
+                        {/* HEADER */}
+                        <div className="mb-4 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-900">
+                                    Master Data
+                                </h2>
 
-                                    <div>
-                                        <h2 className="font-bold">
-                                            Factory
-                                        </h2>
-
-                                        <p className="text-xs text-slate-400">
-                                            {factories.length} factory
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={openCreateFactory}
-                                    className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-teal-700"
-                                >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    Add
-                                </button>
+                                <p className="text-xs text-slate-400">
+                                    Kelola Factory dan SKU
+                                </p>
                             </div>
 
-                            <div className="mt-5 space-y-2">
-                                {factories.map((factory) => (
-                                    <div
-                                        key={factory.id}
-                                        className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
-                                    >
-                                        <div>
-                                            <p className="text-sm font-semibold">
-                                                {factory.code}
-                                            </p>
-
-                                            <p className="text-xs text-slate-500">
-                                                {factory.name}
-                                            </p>
-                                        </div>
-
-                                        <div className="flex gap-1">
-                                            <button
-                                                onClick={() =>
-                                                    openEditFactory(factory)
-                                                }
-                                                className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-teal-700"
-                                            >
-                                                <Edit className="h-4 w-4" />
-                                            </button>
-
-                                            <button
-                                                onClick={() =>
-                                                    deleteFactory(factory)
-                                                }
-                                                className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setShowMasterData((prev) => !prev)
+                                }
+                                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                                {showMasterData
+                                    ? "Sembunyikan Data"
+                                    : "Tampilkan Data"}
+                            </button>
                         </div>
 
-                        {/* SKU */}
-                        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-                                        <Package className="h-5 w-5" />
-                                    </div>
+                        {showMasterData && (
+                            <div className="grid gap-5 md:grid-cols-2">
+                                {/* FACTORY */}
+                                <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                                                <Building2 className="h-5 w-5" />
+                                            </div>
 
-                                    <div>
-                                        <h2 className="font-bold">
-                                            SKU
-                                        </h2>
-
-                                        <p className="text-xs text-slate-400">
-                                            {factories.reduce(
-                                                (total, factory) =>
-                                                    total + factory.skus.length,
-                                                0
-                                            )}{" "}
-                                            SKU
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <button
-                                    onClick={openCreateSKU}
-                                    className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-teal-700"
-                                >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    Add
-                                </button>
-                            </div>
-
-                            <div className="mt-5 max-h-64 space-y-2 overflow-y-auto">
-                                {factories.flatMap((factory) =>
-                                    factory.skus.map((sku) => (
-                                        <div
-                                            key={sku.id}
-                                            className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
-                                        >
                                             <div>
-                                                <p className="text-sm font-semibold">
-                                                    {sku.code}
+                                                <h2 className="font-bold">
+                                                    Factory
+                                                </h2>
+
+                                                <p className="text-xs text-slate-400">
+                                                    {factories.length} factory
                                                 </p>
-
-                                                <p className="text-xs text-slate-500">
-                                                    {sku.name} • {factory.code}
-                                                </p>
-                                            </div>
-
-                                            <div className="flex gap-1">
-                                                <button
-                                                    onClick={() =>
-                                                        openEditSKU(sku)
-                                                    }
-                                                    className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-teal-700"
-                                                >
-                                                    <Edit className="h-4 w-4" />
-                                                </button>
-
-                                                <button
-                                                    onClick={() =>
-                                                        deleteSKU(sku)
-                                                    }
-                                                    className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </button>
                                             </div>
                                         </div>
-                                    ))
-                                )}
+
+                                        <button
+                                            type="button"
+                                            onClick={openCreateFactory}
+                                            className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-teal-700"
+                                        >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Add
+                                        </button>
+                                    </div>
+
+                                    {/* FACTORY DROPDOWN */}
+                                    <div className="mt-5">
+                                        <select
+                                            value={selectedFactoryId ?? ""}
+                                            onChange={(e) =>
+                                                setSelectedFactoryId(
+                                                    e.target.value
+                                                        ? Number(e.target.value)
+                                                        : null
+                                                )
+                                            }
+                                            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-teal-500"
+                                        >
+                                            <option value="">
+                                                Pilih Factory
+                                            </option>
+
+                                            {factories.map((factory) => (
+                                                <option
+                                                    key={factory.id}
+                                                    value={factory.id}
+                                                >
+                                                    {factory.code} - {factory.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* SKU */}
+                                <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                                                <Package className="h-5 w-5" />
+                                            </div>
+
+                                            <div>
+                                                <h2 className="font-bold">
+                                                    SKU
+                                                </h2>
+
+                                                <p className="text-xs text-slate-400">
+                                                    {selectedFactoryId
+                                                        ? `${factories.find(
+                                                            (factory) =>
+                                                                factory.id ===
+                                                                selectedFactoryId
+                                                        )?.skus.length ?? 0
+                                                        } SKU`
+                                                        : "Pilih factory"}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={openCreateSKU}
+                                            disabled={!selectedFactoryId}
+                                            className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Add
+                                        </button>
+                                    </div>
+
+                                    {/* SKU DARI FACTORY TERPILIH */}
+                                    <div className="mt-5 max-h-64 space-y-2 overflow-y-auto">
+                                        {!selectedFactoryId ? (
+                                            <div className="rounded-xl bg-slate-50 px-4 py-8 text-center">
+                                                <p className="text-sm font-medium text-slate-500">
+                                                    Pilih factory terlebih dahulu
+                                                </p>
+
+                                                <p className="mt-1 text-xs text-slate-400">
+                                                    SKU akan ditampilkan berdasarkan
+                                                    factory yang dipilih.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            (() => {
+                                                const selectedFactory =
+                                                    factories.find(
+                                                        (factory) =>
+                                                            factory.id ===
+                                                            selectedFactoryId
+                                                    );
+
+                                                if (!selectedFactory) {
+                                                    return null;
+                                                }
+
+                                                if (
+                                                    selectedFactory.skus.length === 0
+                                                ) {
+                                                    return (
+                                                        <div className="rounded-xl bg-slate-50 px-4 py-8 text-center">
+                                                            <p className="text-sm font-medium text-slate-500">
+                                                                Belum ada SKU
+                                                            </p>
+
+                                                            <p className="mt-1 text-xs text-slate-400">
+                                                                Factory ini belum memiliki
+                                                                SKU.
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return selectedFactory.skus.map(
+                                                    (sku) => (
+                                                        <div
+                                                            key={sku.id}
+                                                            className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
+                                                        >
+                                                            <div>
+                                                                <p className="text-sm font-semibold">
+                                                                    {sku.code}
+                                                                </p>
+
+                                                                <p className="text-xs text-slate-500">
+                                                                    {sku.name}
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="flex gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        openEditSKU(
+                                                                            sku
+                                                                        )
+                                                                    }
+                                                                    className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-teal-700"
+                                                                >
+                                                                    <Edit className="h-4 w-4" />
+                                                                </button>
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        deleteSKU(
+                                                                            sku
+                                                                        )
+                                                                    }
+                                                                    className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                );
+                                            })()
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </section>
                 )}
 
                 {/* SCORE TABLE */}
-                <section className="mt-8 rounded-2xl border border-slate-200 bg-white">
+                <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                    {/* Header */}
                     <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
                         <div>
                             <h2 className="font-bold">
@@ -908,6 +1207,13 @@ export default function ManufacturingScoringContent({
                                 {filteredScores.length} data ditemukan
                             </p>
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowChart((prev) => !prev)}
+                            className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-teal-700"
+                        >
+                            {showChart ? "Sembunyikan Chart" : "Tampilkan Chart"}
+                        </button>
                     </div>
 
                     {loading ? (
@@ -929,109 +1235,460 @@ export default function ManufacturingScoringContent({
                             )}
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[800px] text-left">
-                                <thead>
-                                    <tr className="border-b border-slate-100 bg-slate-50">
-                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
-                                            Factory
-                                        </th>
+                        <div className="space-y-4 overflow-x-auto">
 
-                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
-                                            Period
-                                        </th>
+                            {/* ========================= */}
+                            {/* TABLE 2 - OVERALL SCORE */}
+                            {/* ========================= */}
 
-                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
-                                            Overall Score
-                                        </th>
+                            <div>
+                                <h3 className="mb-2 text-xs font-bold text-slate-700">
+                                    Overall Score
+                                </h3>
 
-                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
-                                            SKU
-                                        </th>
-
-                                        {isAdmin && (
-                                            <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wide text-slate-400">
-                                                Action
+                                <table className="w-max border-collapse text-center text-xs">
+                                    <thead>
+                                        <tr>
+                                            <th
+                                                rowSpan={3}
+                                                className="sticky left-0 z-30 w-28 min-w-28 max-w-28 border border-slate-300 bg-slate-100 px-2 py-1 text-[10px] font-bold"
+                                            >
+                                                CHECKLIST
                                             </th>
-                                        )}
-                                    </tr>
-                                </thead>
 
-                                <tbody>
-                                    {filteredScores.map((item) => (
-                                        <tr
-                                            key={item.id}
-                                            className="border-b border-slate-50 last:border-0"
-                                        >
-                                            <td className="px-6 py-5">
-                                                <p className="text-sm font-bold">
-                                                    {item.factory.code}
-                                                </p>
-
-                                                <p className="text-xs text-slate-400">
-                                                    {item.factory.name}
-                                                </p>
-                                            </td>
-
-                                            <td className="px-6 py-5 text-sm text-slate-600">
-                                                {months[item.month - 1]}{" "}
-                                                {item.year}
-                                            </td>
-
-                                            <td className="px-6 py-5">
-                                                <span className="text-lg font-bold text-teal-700">
-                                                    {item.score}%
-                                                </span>
-                                            </td>
-
-                                            <td className="px-6 py-5">
-                                                <div className="space-y-1">
-                                                    {item.skuScores.map(
-                                                        (skuScore) => (
-                                                            <div
-                                                                key={skuScore.id}
-                                                                className="flex min-w-[220px] items-center justify-between gap-5 text-sm"
-                                                            >
-                                                                <span className="text-slate-600">
-                                                                    {skuScore.sku.code}
-                                                                </span>
-
-                                                                <span className="font-semibold">
-                                                                    {skuScore.score}%
-                                                                </span>
-                                                            </div>
-                                                        )
-                                                    )}
-                                                </div>
-                                            </td>
-
-                                            {isAdmin && (
-                                                <td className="px-6 py-5">
-                                                    <div className="flex justify-end gap-1">
-                                                        <button
-                                                            onClick={() =>
-                                                                openEditScore(item)
-                                                            }
-                                                            className="rounded-lg p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700"
-                                                        >
-                                                            <Edit className="h-4 w-4" />
-                                                        </button>
-
-                                                        <button
-                                                            onClick={() =>
-                                                                deleteScore(item)
-                                                            }
-                                                            className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </button>
-                                                    </div>
-                                                </td>
+                                            {Object.entries(periodsByYear).map(
+                                                ([year, periods]) => (
+                                                    <th
+                                                        key={year}
+                                                        colSpan={periods.length}
+                                                        className="border border-slate-300 bg-red-600 px-2 py-1 text-xs font-bold text-white"
+                                                    >
+                                                        CK - 1
+                                                    </th>
+                                                )
                                             )}
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+
+                                        <tr>
+                                            {Object.entries(periodsByYear).map(
+                                                ([year, periods]) => (
+                                                    <th
+                                                        key={year}
+                                                        colSpan={periods.length}
+                                                        className="border border-slate-300 bg-red-100 px-2 py-1 text-[10px] font-bold"
+                                                    >
+                                                        {year}
+                                                    </th>
+                                                )
+                                            )}
+                                        </tr>
+
+                                        <tr>
+                                            {allPeriods.map((period) => (
+                                                <th
+                                                    key={`${period.year}-${period.month}`}
+                                                    className="w-20 min-w-20 max-w-20 border border-slate-300 bg-slate-50 px-1 py-1 text-[10px] font-semibold"
+                                                >
+                                                    {months[period.month - 1]}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+
+                                    <tbody>
+                                        <tr>
+                                            <td className="sticky left-0 z-20 w-28 min-w-28 max-w-28 border border-slate-300 bg-slate-100 px-2 py-1.5 text-left text-[10px] font-bold">
+                                                OVERALL SCORE
+                                            </td>
+
+                                            {allPeriods.map((period) => {
+                                                const score = filteredScores.find(
+                                                    (item) =>
+                                                        item.month === period.month &&
+                                                        item.year === period.year
+                                                );
+
+                                                return (
+                                                    <td
+                                                        key={`overall-${period.year}-${period.month}`}
+                                                        className={`w-20 min-w-20 max-w-20 border border-slate-300 px-1 py-1.5 text-[10px] font-bold ${score
+                                                            ? getScoreColor(score.score)
+                                                            : "bg-white"
+                                                            }`}
+                                                    >
+                                                        {score
+                                                            ? `${score.score.toFixed(2)}%`
+                                                            : "-"}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            {showChart && (
+                                <div className="mt-6 space-y-6">
+
+                                    {/* ========================================= */}
+                                    {/* CHART OVERALL SCORE */}
+                                    {/* ========================================= */}
+
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+                                        <div className="mb-5">
+                                            <h3 className="text-base font-bold text-slate-900">
+                                                Trend Overall Score
+                                            </h3>
+
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Perkembangan nilai overall score CK-1 berdasarkan
+                                                periode
+                                            </p>
+                                        </div>
+
+                                        <div className="h-[330px] w-full">
+
+                                            <ResponsiveContainer
+                                                width="100%"
+                                                height="100%"
+                                            >
+                                                <LineChart
+                                                    data={chartData}
+                                                    margin={{
+                                                        top: 10,
+                                                        right: 30,
+                                                        left: 10,
+                                                        bottom: 10,
+                                                    }}
+                                                >
+
+                                                    <CartesianGrid
+                                                        strokeDasharray="3 3"
+                                                        stroke="#e2e8f0"
+                                                    />
+
+                                                    <XAxis
+                                                        dataKey="period"
+                                                        padding={{
+                                                            left: 30,
+                                                            right: 30,
+                                                        }}
+                                                        tick={{
+                                                            fontSize: 11,
+                                                            fill: "#64748b",
+                                                        }}
+                                                        tickLine={false}
+                                                        axisLine={{
+                                                            stroke: "#cbd5e1",
+                                                        }}
+                                                    />
+
+                                                    <YAxis
+                                                        domain={[0, 105]}
+                                                        tick={{
+                                                            fontSize: 11,
+                                                            fill: "#64748b",
+                                                        }}
+                                                        tickLine={false}
+                                                        axisLine={false}
+                                                        tickFormatter={(value) =>
+                                                            `${value}%`
+                                                        }
+                                                    />
+
+                                                    <Tooltip
+                                                        contentStyle={{
+                                                            borderRadius: "12px",
+                                                            border: "1px solid #e2e8f0",
+                                                            boxShadow:
+                                                                "0 10px 25px rgba(15, 23, 42, 0.08)",
+                                                            fontSize: "12px",
+                                                        }}
+                                                        labelStyle={{
+                                                            fontWeight: 700,
+                                                            marginBottom: 6,
+                                                            color: "#0f172a",
+                                                        }}
+                                                        formatter={(value) => [
+                                                            typeof value === "number"
+                                                                ? `${value.toFixed(2)}%`
+                                                                : value,
+                                                            "Overall Score",
+                                                        ]}
+                                                    />
+
+                                                    <Line
+                                                        type="linear"
+                                                        dataKey="overall"
+                                                        name="Overall Score"
+                                                        stroke="#2563eb"
+                                                        strokeWidth={3}
+                                                        dot={{
+                                                            r: 5,
+                                                            fill: "#ffffff",
+                                                            strokeWidth: 3,
+                                                            stroke: "#2563eb",
+                                                        }}
+                                                        activeDot={{
+                                                            r: 7,
+                                                            strokeWidth: 2,
+                                                        }}
+                                                        label={renderScoreLabel}
+                                                    />
+
+                                                </LineChart>
+                                            </ResponsiveContainer>
+
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )}
+                            {/* ========================= */}
+                            {/* TABLE 1 - MANUFACTURING SCORE */}
+                            {/* ========================= */}
+
+                            <div>
+                                <h3 className="mb-2 text-xs font-bold text-slate-700">
+                                    Manufacturing Score
+                                </h3>
+
+                                <table className="w-max border-collapse text-center text-xs">
+                                    <thead>
+                                        <tr>
+                                            <th
+                                                rowSpan={3}
+                                                className="sticky left-0 z-30 w-28 min-w-28 max-w-28 border border-slate-300 bg-slate-100 px-2 py-1 text-[10px] font-bold"
+                                            >
+                                                CHECKLIST
+                                            </th>
+
+                                            {Object.entries(periodsByYear).map(
+                                                ([year, periods]) => (
+                                                    <th
+                                                        key={year}
+                                                        colSpan={periods.length}
+                                                        className="border border-slate-300 bg-red-600 px-2 py-1 text-xs font-bold text-white"
+                                                    >
+                                                        CK - 1
+                                                    </th>
+                                                )
+                                            )}
+                                        </tr>
+
+                                        <tr>
+                                            {Object.entries(periodsByYear).map(
+                                                ([year, periods]) => (
+                                                    <th
+                                                        key={year}
+                                                        colSpan={periods.length}
+                                                        className="border border-slate-300 bg-red-100 px-2 py-1 text-[10px] font-bold"
+                                                    >
+                                                        {year}
+                                                    </th>
+                                                )
+                                            )}
+                                        </tr>
+
+                                        <tr>
+                                            {allPeriods.map((period) => (
+                                                <th
+                                                    key={`${period.year}-${period.month}`}
+                                                    className="w-20 min-w-20 max-w-20 border border-slate-300 bg-slate-50 px-1 py-1 text-[10px] font-semibold"
+                                                >
+                                                    {months[period.month - 1]}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+
+                                    <tbody>
+                                        {products.map((product) => (
+                                            <tr key={product.id}>
+                                                <td className="sticky left-0 z-20 w-28 min-w-28 max-w-28 border border-slate-300 bg-white px-2 py-1.5 text-left text-[10px] font-semibold">
+                                                    {product.name}
+                                                </td>
+
+                                                {allPeriods.map((period) => {
+                                                    const score = filteredScores.find(
+                                                        (item) =>
+                                                            item.month === period.month &&
+                                                            item.year === period.year
+                                                    );
+
+                                                    const skuScore =
+                                                        score?.skuScores.find(
+                                                            (item) =>
+                                                                item.skuId === product.id
+                                                        );
+
+                                                    return (
+                                                        <td
+                                                            key={`${product.id}-${period.year}-${period.month}`}
+                                                            className={`w-20 min-w-20 max-w-20 border border-slate-300 px-1 py-1.5 text-[10px] font-semibold ${skuScore
+                                                                ? getScoreColor(skuScore.score)
+                                                                : "bg-white"
+                                                                }`}
+                                                        >
+                                                            {skuScore
+                                                                ? `${skuScore.score.toFixed(2)}%`
+                                                                : "-"}
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* {showChart && (
+                                <div className="mt-6 space-y-6">
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+                                        <div className="mb-5">
+                                            <h3 className="text-base font-bold text-slate-900">
+                                                Trend Manufacturing Score
+                                            </h3>
+
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Perkembangan score setiap produk berdasarkan bulan
+                                            </p>
+                                        </div>
+
+                                        <div className="h-[380px] w-full">
+
+                                            <ResponsiveContainer
+                                                width="100%"
+                                                height="100%"
+                                            >
+                                                <LineChart
+                                                    data={chartData}
+                                                    margin={{
+                                                        top: 35,
+                                                        right: 40,
+                                                        left: 15,
+                                                        bottom: 30,
+                                                    }}
+                                                >
+
+                                                    <CartesianGrid
+                                                        strokeDasharray="3 3"
+                                                        stroke="#e2e8f0"
+                                                    />
+
+                                                    <XAxis
+                                                        dataKey="period"
+                                                        padding={{
+                                                            left: 30,
+                                                            right: 30,
+                                                        }}
+                                                        tick={{
+                                                            fontSize: 11,
+                                                            fill: "#64748b",
+                                                        }}
+                                                        tickLine={false}
+                                                        axisLine={{
+                                                            stroke: "#cbd5e1",
+                                                        }}
+                                                    />
+
+                                                    <YAxis
+                                                        domain={[0, 110]}
+                                                        tick={{
+                                                            fontSize: 11,
+                                                            fill: "#64748b",
+                                                        }}
+                                                        tickLine={false}
+                                                        axisLine={false}
+                                                        tickFormatter={(value) =>
+                                                            `${value}%`
+                                                        }
+                                                    />
+
+                                                    <Tooltip
+                                                        contentStyle={{
+                                                            borderRadius: "12px",
+                                                            border: "1px solid #e2e8f0",
+                                                            boxShadow:
+                                                                "0 10px 25px rgba(15, 23, 42, 0.08)",
+                                                            fontSize: "12px",
+                                                        }}
+                                                        labelStyle={{
+                                                            fontWeight: 700,
+                                                            marginBottom: 6,
+                                                            color: "#0f172a",
+                                                        }}
+                                                        formatter={(value, name) => [
+                                                            typeof value === "number"
+                                                                ? `${value.toFixed(2)}%`
+                                                                : value,
+                                                            name,
+                                                        ]}
+                                                    />
+
+                                                    <Legend
+                                                        verticalAlign="bottom"
+                                                        height={50}
+                                                        iconType="line"
+                                                        wrapperStyle={{
+                                                            fontSize: "11px",
+                                                            paddingTop: "15px",
+                                                        }}
+                                                    />
+
+                                                    {chartSkuLines.map((line, index) => {
+
+                                                        const colors = [
+                                                            "#2563eb",
+                                                            "#dc2626",
+                                                            "#16a34a",
+                                                            "#9333ea",
+                                                            "#ea580c",
+                                                            "#0891b2",
+                                                            "#db2777",
+                                                            "#65a30d",
+                                                        ];
+
+                                                        return (
+                                                            <Line
+                                                                key={line.key}
+                                                                type="linear"
+                                                                dataKey={line.key}
+                                                                name={line.name}
+                                                                stroke={colors[index % colors.length]}
+                                                                strokeWidth={2.5}
+                                                                dot={{
+                                                                    r: 4,
+                                                                    strokeWidth: 2,
+                                                                    fill: "#ffffff",
+                                                                }}
+                                                                activeDot={{
+                                                                    r: 6,
+                                                                    strokeWidth: 2,
+                                                                }}
+                                                                label={{
+                                                                    position: "top",
+                                                                    fontSize: 10,
+                                                                    fontWeight: 600,
+                                                                    formatter: (value) =>
+                                                                        typeof value === "number"
+                                                                            ? `${value.toFixed(2)}%`
+                                                                            : value,
+                                                                }}
+                                                                connectNulls
+                                                            />
+                                                        );
+                                                    })}
+
+                                                </LineChart>
+                                            </ResponsiveContainer>
+
+                                        </div>
+                                    </div>
+                                </div>
+                            )} */}
+
                         </div>
                     )}
                 </section>
@@ -1260,10 +1917,19 @@ export default function ManufacturingScoringContent({
 
                                     <select
                                         value={scoreMonth}
-                                        onChange={(e) =>
-                                            setScoreMonth(
-                                                Number(e.target.value)
-                                            )
+                                        onChange={(e) => {
+                                            const month = Number(e.target.value);
+
+                                            setScoreMonth(month);
+
+                                            if (!editingScore && scoreFactoryId) {
+                                                loadExistingScore(
+                                                    scoreFactoryId,
+                                                    month,
+                                                    scoreYear
+                                                );
+                                            }
+                                        }
                                         }
                                         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-teal-500"
                                     >
@@ -1286,11 +1952,19 @@ export default function ManufacturingScoringContent({
                                     <input
                                         type="number"
                                         value={scoreYear}
-                                        onChange={(e) =>
-                                            setScoreYear(
-                                                Number(e.target.value)
-                                            )
-                                        }
+                                        onChange={(e) => {
+                                            const year = Number(e.target.value);
+
+                                            setScoreYear(year);
+
+                                            if (!editingScore && scoreFactoryId) {
+                                                loadExistingScore(
+                                                    scoreFactoryId,
+                                                    scoreMonth,
+                                                    year
+                                                );
+                                            }
+                                        }}
                                         className="h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-teal-500"
                                     />
                                 </div>
@@ -1404,7 +2078,111 @@ export default function ManufacturingScoringContent({
                         </div>
                     </div>
                 </div>
-            )}
-        </main>
+            )
+            }
+            {
+                deleteTarget && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 backdrop-blur-sm"
+                        onClick={() => {
+                            if (!deleting) {
+                                setDeleteTarget(null);
+                            }
+                        }}
+                    >
+                        <div
+                            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Icon */}
+                            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-red-50 text-red-600">
+                                <Trash2 className="h-6 w-6" />
+                            </div>
+
+                            {/* Content */}
+                            <div className="mt-5">
+                                <h3 className="text-lg font-bold text-slate-900">
+                                    Hapus{" "}
+                                    {deleteTarget.type === "factory"
+                                        ? "Factory"
+                                        : deleteTarget.type === "sku"
+                                            ? "SKU"
+                                            : "Scoring"}?
+                                </h3>
+
+                                <p className="mt-2 text-sm leading-6 text-slate-500">
+                                    Apakah kamu yakin ingin menghapus{" "}
+                                    <span className="font-semibold text-slate-800">
+                                        "{deleteTarget.name}"
+                                    </span>
+                                    ?
+                                </p>
+
+                                <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+                                    <p className="text-xs leading-5 text-red-600">
+                                        {deleteTarget.description}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="mt-6 flex gap-3">
+                                <button
+                                    type="button"
+                                    disabled={deleting}
+                                    onClick={() => setDeleteTarget(null)}
+                                    className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Batal
+                                </button>
+
+                                <button
+                                    type="button"
+                                    disabled={deleting}
+                                    onClick={confirmDelete}
+                                    className="flex-1 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {deleting ? "Menghapus..." : "Ya, Hapus"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {
+                successMessage && (
+                    <div
+                        className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 px-4 backdrop-blur-sm"
+                        onClick={() => setSuccessMessage(null)}
+                    >
+                        <div
+                            className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+                                <Check className="h-7 w-7" />
+                            </div>
+
+                            <h3 className="mt-5 text-lg font-bold text-slate-900">
+                                Berhasil
+                            </h3>
+
+                            <p className="mt-2 text-sm leading-6 text-slate-500">
+                                {successMessage}
+                            </p>
+
+                            <button
+                                type="button"
+                                onClick={() => setSuccessMessage(null)}
+                                className="mt-6 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+                            >
+                                OK
+                            </button>
+                        </div>
+                    </div>
+                )
+            }
+
+        </main >
     );
 }

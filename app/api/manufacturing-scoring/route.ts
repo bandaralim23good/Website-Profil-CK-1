@@ -80,42 +80,120 @@ export async function POST(request: Request) {
       ? body.skuScores
       : [];
 
-    const result = await prisma.manufacturingScore.create({
-      data: {
-        factoryId,
-        month,
-        year,
-        score,
-
-        skuScores: {
-          create: skuScores.map(
-            (item: {
-              skuId: number;
-              score: number;
-            }) => ({
-              skuId: Number(item.skuId),
-              score: Number(item.score),
-            })
-          ),
-        },
-      },
-
-      include: {
-        factory: true,
-        skuScores: {
-          include: {
-            sku: true,
+    const existingScore =
+      await prisma.manufacturingScore.findUnique({
+        where: {
+          factoryId_month_year: {
+            factoryId,
+            month,
+            year,
           },
         },
-      },
-    });
+      });
 
-    return NextResponse.json(result, { status: 201 });
+    let result;
+
+    if (existingScore) {
+      // Update overall score yang sudah ada
+      result = await prisma.manufacturingScore.update({
+        where: {
+          id: existingScore.id,
+        },
+
+        data: {
+          score,
+
+          skuScores: {
+            upsert: skuScores.map(
+              (item: {
+                skuId: number;
+                score: number;
+              }) => ({
+                where: {
+                  manufacturingScoreId_skuId: {
+                    manufacturingScoreId: existingScore.id,
+                    skuId: Number(item.skuId),
+                  },
+                },
+
+                update: {
+                  score: Number(item.score),
+                },
+
+                create: {
+                  skuId: Number(item.skuId),
+                  score: Number(item.score),
+                },
+              })
+            ),
+          },
+        },
+
+        include: {
+          factory: true,
+          skuScores: {
+            include: {
+              sku: true,
+            },
+            orderBy: {
+              sku: {
+                code: "asc",
+              },
+            },
+          },
+        },
+      });
+    } else {
+      // Belum ada data → buat baru
+      result = await prisma.manufacturingScore.create({
+        data: {
+          factoryId,
+          month,
+          year,
+          score,
+
+          skuScores: {
+            create: skuScores.map(
+              (item: {
+                skuId: number;
+                score: number;
+              }) => ({
+                skuId: Number(item.skuId),
+                score: Number(item.score),
+              })
+            ),
+          },
+        },
+
+        include: {
+          factory: true,
+          skuScores: {
+            include: {
+              sku: true,
+            },
+            orderBy: {
+              sku: {
+                code: "asc",
+              },
+            },
+          },
+        },
+      });
+    }
+
+    return NextResponse.json(result, {
+      status: existingScore ? 200 : 201,
+    });
   } catch (error) {
-    console.error(error);
+    console.error("MANUFACTURING SCORE ERROR:", error);
 
     return NextResponse.json(
-      { message: "Gagal membuat manufacturing score." },
+      {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Gagal menyimpan manufacturing score.",
+      },
       { status: 500 }
     );
   }

@@ -70,24 +70,24 @@ function LoginForm() {
             {/* Introduction */}
             <div className="max-w-xl">
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-teal-400">
-                Application Portal
+                Portal Digital
               </p>
 
               <h1 className="mt-5 text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
-                One Portal.
+                Satu Portal.
                 <br />
                 <span className="text-teal-400">
-                  Multiple Applications.
+                  Berbagai Sistem Digital.
                 </span>
               </h1>
 
               <p className="mt-6 max-w-lg text-sm leading-7 text-slate-400 xl:text-base">
-                Akses berbagai sistem digital yang dikembangkan untuk
-                mendukung proses operasional dan pengelolaan data Central
-                Kitchen 1 dalam satu platform.
+                Akses berbagai sistem digital yang digunakan untuk mendukung
+                proses operasional, monitoring, dan pengelolaan data di
+                Central Kitchen 1 dalam satu platform.
               </p>
             </div>
-
+            
             {/* Footer */}
             <p className="text-xs text-slate-600">
               CK-1 Digital System • Central Kitchen 1
