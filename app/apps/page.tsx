@@ -45,7 +45,7 @@ const applications: Application[] = [
   {
     name: "Bakso Production Dashboard",
     description:
-      "Platfrom Monitoring Hasil Produksi Bakso di CK-1",
+      "Platfrom Monitoring Hasil Produksi CK-1",
     category: "Dashboard",
     href: "https://production-ck-1.vercel.app/",
     icon: BarChart3,
