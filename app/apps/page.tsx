@@ -43,7 +43,7 @@ const applications: Application[] = [
   //     active: true,
   //   },
   {
-    name: "Bakso Production Dashboard",
+    name: "Bakso and Dimsum Production Dashboard",
     description:
       "Platfrom Monitoring Hasil Produksi CK-1",
     category: "Dashboard",
