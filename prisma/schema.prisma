@@ -61,8 +61,8 @@ model ManufacturingScore {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  factory    Factory                 @relation(fields: [factoryId], references: [id], onDelete: Cascade)
-  skuScores  ManufacturingScoreSKU[]
+  factory   Factory                 @relation(fields: [factoryId], references: [id], onDelete: Cascade)
+  skuScores ManufacturingScoreSKU[]
 
   @@unique([factoryId, month, year])
   @@map("manufacturing_scores")
@@ -73,13 +73,61 @@ model ManufacturingScoreSKU {
   manufacturingScoreId Int
   skuId                Int
   score                Float
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  manufacturingScore ManufacturingScore @relation(fields: [manufacturingScoreId],references: [id], onDelete: Cascade)
+  manufacturingScore ManufacturingScore @relation(fields: [manufacturingScoreId], references: [id], onDelete: Cascade)
 
   sku SKU @relation(fields: [skuId], references: [id], onDelete: Cascade)
 
   @@unique([manufacturingScoreId, skuId])
   @@map("manufacturing_score_skus")
+}
+
+model KPI {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  unit        String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  annualMetrics KPIAnnualMetric[]
+  actuals       KPIActual[]
+
+  @@map("kpis")
+}
+
+model KPIAnnualMetric {
+  id        Int      @id @default(autoincrement())
+  kpiId     Int
+  year      Int
+  actual    Decimal? @db.Decimal(14, 4)
+  target    Decimal? @db.Decimal(14, 4)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  kpi KPI @relation(fields: [kpiId], references: [id], onDelete: Cascade)
+
+  @@unique([kpiId, year])
+  @@index([year])
+  @@map("kpi_annual_metrics")
+}
+
+model KPIActual {
+  id        Int      @id @default(autoincrement())
+  kpiId     Int
+  year      Int
+  month     Int
+  value     Decimal? @db.Decimal(14, 4)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  kpi KPI @relation(fields: [kpiId], references: [id], onDelete: Cascade)
+
+  @@unique([kpiId, year, month])
+  @@index([year, month])
+  @@map("kpi_actuals")
 }
